@@ -1,0 +1,34 @@
+{
+    "titre": "Traduction Français -> Anglais",
+    "statut": "actif",
+    "questions": [
+        {
+            "type": "ecrit",
+            "principale": "Vole",
+            "secondaire": "Il a volé mon téléphone",
+            "theme": "verbe",
+            "reponses": ["stole", "steals"]
+        },
+        {
+            "type": "ecrit",
+            "principale": "Chien",
+            "secondaire": "Mon chien est très joueur",
+            "theme": "animal",
+            "reponses": ["dog"]
+        },
+        {
+            "type": "ecrit",
+            "principale": "Courir",
+            "secondaire": "Elle court tous les matins",
+            "theme": "verbe",
+            "reponses": ["run", "runs", "to run"]
+        },
+        {
+            "type": "ecrit",
+            "principale": "Papillon",
+            "secondaire": "Le papillon se pose sur la fleur",
+            "theme": "animal",
+            "reponses": ["butterfly"]
+        }
+    ]
+}

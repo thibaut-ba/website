@@ -1,0 +1,20 @@
+{
+    "titre": "Cybersécurité",
+    "statut": "actif",
+    "questions": [
+        {
+            "type": "qcm",
+            "principale": "Quel est le port de Telnet ?",
+            "secondaire": "C'est un protocole non sécurisé",
+            "reponses": ["23"],
+            "options": ["21", "22", "23", "80"]
+        },
+        {
+            "type": "qcm",
+            "principale": "Quel protocole chiffre les communications HTTP ?",
+            "secondaire": "Utilisé pour sécuriser les échanges web",
+            "reponses": ["TLS"],
+            "options": ["SSL", "TLS", "SSH", "IPSec"]
+        }
+    ]
+}

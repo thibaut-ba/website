@@ -1,0 +1,2 @@
+# Empêche l'accès direct aux fichiers JSON via le navigateur
+Require all denied

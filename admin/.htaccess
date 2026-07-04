@@ -1,0 +1,4 @@
+# Protège le fichier des identifiants
+<Files "credentials.json">
+    Require all denied
+</Files>
