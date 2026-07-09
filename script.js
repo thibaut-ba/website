@@ -442,7 +442,7 @@ function afficherFin(total) {
 
     const retryBtn = document.createElement('button');
     retryBtn.className = 'btn btn-primary';
-    retryBtn.textContent = 'Recommencer';
+    retryBtn.textContent = 'Retour accueil';
     retryBtn.onclick = () => location.reload();
 
     btnGroup.appendChild(retryBtn);
