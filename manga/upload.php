@@ -1,10 +1,23 @@
 <?php
+/**
+ * manga/upload.php
+ * -----------------------------------------------------------------------
+ * Traite l'upload d'un fichier CSV depuis manga-review.php et remplace
+ * les données du tableau manga-data.json.
+ * Sécurité : accès réservé aux admins connectés, jeton anti-CSRF
+ * obligatoire, vérification de l'extension ET du type MIME réel du
+ * fichier (l'extension seule peut être falsifiée), limite de taille.
+ * -----------------------------------------------------------------------
+ */
 require_once dirname(__DIR__) . '/admin/auth.php';
 
 if (!adminIsLoggedIn()) {
     header('Location: ../admin/login.php');
     exit;
 }
+
+// Vérifie le jeton anti-CSRF avant tout traitement du formulaire d'upload.
+securityRequireCsrf($_POST['csrf_token'] ?? null);
 
 define('MANGA_DATA_FILE', __DIR__ . '/manga-data.json');
 
@@ -124,6 +137,22 @@ if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
 $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 
 if ($extension !== 'csv') {
+    header('Location: manga-review.php?msg=type_err&type=err');
+    exit;
+}
+
+// SÉCURITÉ : l'extension du fichier peut être falsifiée par l'utilisateur ;
+// on vérifie donc en complément le type MIME réel détecté à partir du
+// contenu du fichier (finfo), afin de réduire le risque qu'un fichier
+// malveillant (script, exécutable...) soit renommé en .csv pour passer
+// le premier contrôle.
+$finfo = finfo_open(FILEINFO_MIME_TYPE);
+$mimeType = $finfo ? finfo_file($finfo, $file['tmp_name']) : false;
+if ($finfo) {
+    finfo_close($finfo);
+}
+$allowedMimeTypes = ['text/plain', 'text/csv', 'application/csv', 'text/x-csv', 'application/vnd.ms-excel'];
+if ($mimeType !== false && !in_array($mimeType, $allowedMimeTypes, true)) {
     header('Location: manga-review.php?msg=type_err&type=err');
     exit;
 }

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/auth.php';
+securitySendHeaders();
 
 if (adminIsLoggedIn()) {
     header('Location: index.php');
@@ -7,17 +8,31 @@ if (adminIsLoggedIn()) {
 }
 
 $error = null;
+$lockedSeconds = adminLockoutSecondsRemaining();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
+    // Vérifie le jeton anti-CSRF avant tout traitement du formulaire.
+    securityRequireCsrf($_POST['csrf_token'] ?? null);
 
-    if (adminAttemptLogin($username, $password)) {
-        header('Location: index.php');
-        exit;
+    if ($lockedSeconds > 0) {
+        $error = 'Trop de tentatives échouées. Réessayez dans ' . ceil($lockedSeconds / 60) . ' minute(s).';
+    } else {
+        // securityCleanText() retire les caractères de contrôle avant traitement.
+        $username = securityCleanText($_POST['username'] ?? '', 100);
+        $password = (string)($_POST['password'] ?? '');
+
+        if (adminAttemptLogin($username, $password)) {
+            header('Location: index.php');
+            exit;
+        }
+        $lockedSeconds = adminLockoutSecondsRemaining();
+        $error = $lockedSeconds > 0
+            ? 'Trop de tentatives échouées. Réessayez dans ' . ceil($lockedSeconds / 60) . ' minute(s).'
+            : 'Identifiants incorrects.';
     }
-    $error = 'Identifiants incorrects.';
 }
+
+$csrfToken = securityCsrfToken();
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -43,15 +58,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <div class="admin-section">
         <form method="POST">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
             <div class="form-group" style="margin-bottom:16px;">
                 <label>Nom d'utilisateur</label>
-                <input class="form-input" type="text" name="username" required autofocus autocomplete="username">
+                <input class="form-input" type="text" name="username" required autofocus autocomplete="username" maxlength="100">
             </div>
             <div class="form-group" style="margin-bottom:24px;">
                 <label>Mot de passe</label>
                 <input class="form-input" type="password" name="password" required autocomplete="current-password">
             </div>
-            <button type="submit" class="btn btn-primary" style="width:100%;">Se connecter</button>
+            <button type="submit" class="btn btn-primary" style="width:100%;" <?= $lockedSeconds > 0 ? 'disabled' : '' ?>>Se connecter</button>
         </form>
     </div>
 

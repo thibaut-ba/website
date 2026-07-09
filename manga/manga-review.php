@@ -1,7 +1,9 @@
 <?php
 require_once dirname(__DIR__) . '/admin/auth.php';
+securitySendHeaders();
 
 $isAdmin = adminIsLoggedIn();
+$csrfToken = securityCsrfToken();
 $dataFile = __DIR__ . '/manga-data.json';
 $mangaData = ['headers' => [], 'rows' => []];
 
@@ -172,6 +174,7 @@ $hasData = !empty($mangaData['headers']);
     <div class="import-box">
         <label class="form-label">Importer un fichier CSV</label>
         <form action="upload.php" method="POST" enctype="multipart/form-data" class="file-input-wrap">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
             <input type="file" id="monFichier" name="monFichier" accept=".csv,text/csv" required>
             <button type="submit" name="submit" class="btn btn-primary">Importer</button>
         </form>

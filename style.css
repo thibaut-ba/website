@@ -262,6 +262,99 @@ nav a.nav-link:hover {
     line-height: 1.3;
 }
 
+/* ── SÉLECTION MULTI-MODULES ── */
+.selection-hint {
+    color: var(--text3);
+    font-size: 13px;
+    margin-top: 8px;
+    margin-bottom: 4px;
+}
+
+#liste-modules {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.module-check {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.module-check:hover {
+    border-color: var(--accent);
+    background: var(--surface2);
+}
+
+.module-check:has(.module-checkbox:checked) {
+    border-color: var(--accent);
+    background: rgba(99, 102, 241, 0.08);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+.module-checkbox {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.module-check-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.module-check-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text);
+}
+
+.module-check-meta {
+    font-size: 12px;
+    color: var(--text3);
+}
+
+#themes-par-module {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.theme-group-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.theme-group-hint {
+    font-size: 12px;
+    color: var(--text3);
+    margin-bottom: 10px;
+}
+
+.selection-error {
+    color: var(--red);
+    font-size: 13px;
+    text-align: center;
+    margin-top: 16px;
+}
+
 /* ── THEME SELECTION ── */
 .theme-tags {
     display: flex;
@@ -436,6 +529,22 @@ input[type="text"].correct {
     animation: shake 0.35s ease;
 }
 
+/* QCM à choix multiples : état "sélectionné" avant validation */
+.qcm-grid button.selected-multi {
+    border-color: var(--accent2);
+    background: rgba(99, 102, 241, 0.14);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.qcm-grid button.missed-choice {
+    border-color: var(--red);
+    background: rgba(248, 113, 113, 0.08);
+}
+
+.btn-valider-multi {
+    margin-top: 16px;
+}
+
 @keyframes shake {
     0%, 100% { transform: translateX(0); }
     25% { transform: translateX(-6px); }
@@ -595,6 +704,56 @@ input[type="text"].correct {
 .stat-card.accent .stat-value { color: var(--accent2); }
 .stat-card.green .stat-value { color: var(--green); }
 .stat-card.amber .stat-value { color: var(--amber); }
+.stat-card.online .stat-value { color: var(--green); }
+
+/* Point lumineux "en direct" à côté du libellé "Admins connectés" */
+.live-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-right: 6px;
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+    animation: live-pulse 2s infinite;
+    vertical-align: middle;
+}
+
+@keyframes live-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
+    70%  { box-shadow: 0 0 0 7px rgba(52, 211, 153, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+
+/* Bloc d'information sur l'espace de stockage serveur */
+.storage-info { padding-bottom: 22px; }
+
+.storage-values {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+}
+
+.storage-bar-track {
+    width: 100%;
+    height: 10px;
+    border-radius: 99px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+
+.storage-bar-fill {
+    height: 100%;
+    border-radius: 99px;
+    transition: width 0.4s ease;
+}
+
+.storage-percent-label {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text3);
+    text-align: right;
+}
 
 /* Sections */
 .admin-section {
@@ -624,6 +783,19 @@ input[type="text"].correct {
     align-items: center;
     gap: 10px;
     color: var(--text);
+}
+
+/* Regroupe la barre de recherche et le bouton "Ajouter une question" */
+.questions-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.questions-header-actions .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .admin-section-title .dot {
@@ -778,6 +950,7 @@ input[type="text"].correct {
 
 .badge-type.ecrit { background: rgba(99,102,241,0.15); color: var(--accent2); }
 .badge-type.qcm { background: rgba(251,191,36,0.12); color: var(--amber); }
+.badge-type.qcm_multi { background: rgba(52,211,153,0.12); color: var(--green); }
 
 .action-links { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -832,8 +1005,12 @@ input[type="text"].correct {
 /* Question search */
 .search-box {
     position: relative;
+    /* flex (au lieu de width:100%) : la barre de recherche occupe l'espace
+       disponible mais laisse toujours la place au bouton "Ajouter une
+       question" à côté d'elle, plutôt que de le pousser à la ligne suivante. */
+    flex: 1 1 220px;
+    min-width: 160px;
     max-width: 320px;
-    width: 100%;
 }
 
 .search-box input {

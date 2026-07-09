@@ -1,0 +1,7 @@
+# Interdit tout accès direct au contenu de ce dossier depuis un navigateur.
+# Ce dossier ne contient que des données techniques internes (ex : suivi
+# des sessions admin actives) qui ne doivent jamais être servies telles
+# quelles. Cette règle ne s'applique qu'aux serveurs Apache ; sur un autre
+# serveur (Nginx, etc.), une règle équivalente doit être ajoutée à la
+# configuration du site.
+Require all denied

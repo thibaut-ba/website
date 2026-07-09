@@ -1,5 +1,16 @@
 /* ── Admin QCM — interactions ── */
 
+/* ─────────────────────────────────────────────────────────────────────
+   admin/admin.js — Interactions côté client de l'espace d'administration
+   -----------------------------------------------------------------------
+   Gère : l'ouverture/fermeture des modales, les champs "tags" (réponses
+   et options), l'aperçu du slug, la recherche de questions, et l'auto-
+   masquage des messages de confirmation.
+   Ce fichier ne contient AUCUNE vérification de sécurité : toute la
+   validation faisant foi est faite côté serveur dans admin/index.php
+   (voir includes/qcm.php et includes/security.php). Le code ici ne sert
+   qu'au confort d'utilisation (UX), jamais à la sécurité.
+   ───────────────────────────────────────────────────────────────────── */
 const Admin = {
     questionsData: {},
 
@@ -18,6 +29,7 @@ const Admin = {
         this.initModalClose();
         this.initAutoDismissAlerts();
         this.initSlugPreview();
+        this.initPresenceTracking();
     },
 
     showModal(id) {
@@ -102,10 +114,25 @@ const Admin = {
         this.showModal('modal-question');
     },
 
+    /**
+     * Affiche/masque le champ "Options" selon le type de question choisi.
+     * Les types "qcm" (une seule bonne réponse) et "qcm_multi" (plusieurs
+     * bonnes réponses) ont tous les deux besoin d'une liste d'options ;
+     * seul le type "ecrit" (saisie libre) n'en a pas besoin.
+     */
     toggleOptionsField() {
         const type = document.getElementById('fq-type').value;
         const group = document.getElementById('fq-options-group');
-        group.classList.toggle('cache', type !== 'qcm');
+        const needsOptions = (type === 'qcm' || type === 'qcm_multi');
+        group.classList.toggle('cache', !needsOptions);
+
+        // Met à jour le texte d'aide selon qu'on attend une ou plusieurs bonnes réponses.
+        const hint = document.getElementById('fq-reponses-hint');
+        if (hint) {
+            hint.textContent = type === 'qcm_multi'
+                ? 'Ajoutez toutes les bonnes réponses (plusieurs possibles) — Entrée ou virgule pour valider'
+                : 'Appuyez sur Entrée ou virgule pour ajouter une réponse';
+        }
     },
 
     initTagInputs() {
@@ -153,7 +180,7 @@ const Admin = {
                 return;
             }
 
-            if (document.getElementById('fq-type').value === 'qcm') {
+            if (['qcm', 'qcm_multi'].includes(document.getElementById('fq-type').value)) {
                 const options = document.getElementById('fq-options').value.trim();
                 if (!options) {
                     e.preventDefault();
@@ -231,6 +258,36 @@ const Admin = {
                 setTimeout(() => alert.remove(), 300);
             }, 4000);
         }
+    },
+
+    /**
+     * Bloc "Admins connectés" : envoie un "battement de coeur" à
+     * admin/presence.php toutes les 10 secondes (et une première fois
+     * immédiatement) pour signaler que cette session admin est toujours
+     * active, et met à jour le compteur affiché avec la réponse — sans
+     * jamais recharger la page.
+     */
+    initPresenceTracking() {
+        const valueEl = document.getElementById('admins-online-count');
+        const labelEl = document.getElementById('admins-online-label');
+        if (!valueEl || !labelEl) return;
+
+        const rafraichir = () => {
+            fetch('presence.php', { credentials: 'same-origin' })
+                .then(res => res.ok ? res.json() : null)
+                .then(data => {
+                    if (!data || typeof data.count !== 'number') return;
+                    valueEl.textContent = data.count;
+                    labelEl.textContent = data.count > 1 ? 'Admins connectés' : 'Admin connecté';
+                })
+                .catch(() => {
+                    // Erreur réseau ponctuelle : on ignore silencieusement,
+                    // le prochain battement de coeur réessaiera.
+                });
+        };
+
+        rafraichir();
+        setInterval(rafraichir, 10000);
     }
 };
 

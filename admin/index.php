@@ -1,13 +1,44 @@
 <?php
+/**
+ * admin/index.php
+ * -----------------------------------------------------------------------
+ * Tableau de bord de l'administration : gestion des QCM (création,
+ * édition, suppression, activation/désactivation) et des questions.
+ * Toute action qui modifie des données (POST, ou GET avec "action=")
+ * est protégée par un jeton anti-CSRF et par une validation stricte
+ * des entrées utilisateur (liste blanche des types/statuts, nettoyage
+ * des textes, limites de longueur).
+ * -----------------------------------------------------------------------
+ */
+
 require_once __DIR__ . '/auth.php';
 require_once dirname(__DIR__) . '/includes/qcm.php';
+require_once dirname(__DIR__) . '/includes/presence.php';
 
 adminRequireLogin();
+securitySendHeaders();
+
+// Enregistre la présence de l'admin courant et récupère le nombre total
+// d'admins actuellement connectés (utilisé pour l'affichage initial du
+// bloc "Admins connectés" ; les mises à jour suivantes se font ensuite
+// via une requête AJAX périodique, voir admin.js / admin/presence.php).
+$adminsConnectes = presenceHeartbeat();
 
 $message = null;
 $messageType = 'ok';
 
+// Jeton CSRF de la session en cours : injecté dans tous les formulaires
+// et tous les liens d'action (toggle/suppression) de cette page.
+$csrfToken = securityCsrfToken();
+
+// -------------------------------------------------------------------
+// Actions déclenchées par un lien GET (activer/désactiver, supprimer).
+// Ces actions modifient des données : elles nécessitent donc, comme les
+// formulaires POST, un jeton anti-CSRF valide transmis en paramètre.
+// -------------------------------------------------------------------
+
 if (isset($_GET['action']) && $_GET['action'] === 'toggle') {
+    securityRequireCsrf($_GET['csrf'] ?? null);
     $slug = qcmSanitizeSlug($_GET['slug'] ?? '');
     $qcm = qcmLoad($slug);
     if ($qcm) {
@@ -19,6 +50,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'toggle') {
 }
 
 if (isset($_GET['action']) && $_GET['action'] === 'delete_qcm') {
+    securityRequireCsrf($_GET['csrf'] ?? null);
     $slug = qcmSanitizeSlug($_GET['slug'] ?? '');
     qcmDelete($slug);
     header('Location: index.php?msg=deleted&type=ok');
@@ -26,6 +58,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete_qcm') {
 }
 
 if (isset($_GET['action']) && $_GET['action'] === 'delete_question') {
+    securityRequireCsrf($_GET['csrf'] ?? null);
     $slug = qcmSanitizeSlug($_GET['slug'] ?? '');
     $qIdx = (int)($_GET['q_idx'] ?? -1);
     $qcm = qcmLoad($slug);
@@ -37,11 +70,22 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete_question') {
     exit;
 }
 
+// -------------------------------------------------------------------
+// Édition directe du JSON brut d'un QCM.
+// Comme l'utilisateur peut coller n'importe quel contenu, on valide et
+// on normalise systématiquement la structure via qcmValidateStructure()
+// avant d'écrire quoi que ce soit sur le disque.
+// -------------------------------------------------------------------
 if (isset($_POST['save_json'])) {
+    securityRequireCsrf($_POST['csrf_token'] ?? null);
     $slug = qcmSanitizeSlug($_POST['qcm_slug'] ?? '');
     $nouveauContenu = $_POST['json_data'] ?? '';
-    $decoded = json_decode($nouveauContenu, true);
-    if ($decoded !== null && qcmSave($slug, $decoded)) {
+    // Limite de profondeur JSON (512 par défaut) conservée pour éviter les
+    // structures anormalement imbriquées (protection contre les abus).
+    $decoded = json_decode($nouveauContenu, true, 512, JSON_BIGINT_AS_STRING);
+    $valid = is_array($decoded) ? qcmValidateStructure($decoded) : null;
+
+    if ($valid !== null && qcmSave($slug, $valid)) {
         $message = 'Fichier JSON mis à jour avec succès.';
     } else {
         $message = 'JSON invalide — modifications non enregistrées.';
@@ -49,12 +93,25 @@ if (isset($_POST['save_json'])) {
     }
 }
 
+// -------------------------------------------------------------------
+// Création ou modification des informations générales d'un QCM
+// (titre, statut, nom de fichier).
+// -------------------------------------------------------------------
 if (isset($_POST['save_qcm'])) {
+    securityRequireCsrf($_POST['csrf_token'] ?? null);
+
     $slug = qcmSanitizeSlug($_POST['qcm_slug'] ?? '');
     $oldSlug = qcmSanitizeSlug($_POST['old_slug'] ?? $slug);
-    $titre = trim($_POST['titre'] ?? '');
-    $statut = $_POST['statut'] ?? 'actif';
+    // securityCleanText() retire les caractères de contrôle et limite la longueur du titre.
+    $titre = securityCleanText($_POST['titre'] ?? '', 150);
+    // Le statut doit obligatoirement être "actif" ou "inactif" (liste blanche).
+    $statut = securityInWhitelist((string)($_POST['statut'] ?? 'actif'), QCM_VALID_STATUTS, 'actif');
     $isNew = !empty($_POST['is_new']);
+
+    if ($titre === '') {
+        header('Location: index.php?msg=slug_exists&type=err'); // titre vide refusé
+        exit;
+    }
 
     if ($isNew) {
         $baseSlug = $slug !== '' ? $slug : qcmSlugify($titre);
@@ -85,15 +142,34 @@ if (isset($_POST['save_qcm'])) {
     }
 }
 
+// -------------------------------------------------------------------
+// Ajout ou modification d'une question au sein d'un QCM.
+// Le type de question est strictement limité à la liste blanche
+// QCM_VALID_TYPES ('ecrit', 'qcm', 'qcm_multi') pour éviter qu'une
+// valeur arbitraire ne soit enregistrée puis mal interprétée ailleurs.
+// -------------------------------------------------------------------
 if (isset($_POST['save_question'])) {
+    securityRequireCsrf($_POST['csrf_token'] ?? null);
+
     $slug = qcmSanitizeSlug($_POST['qcm_slug'] ?? '');
     $qIdx = $_POST['q_idx'] !== '' ? (int)$_POST['q_idx'] : null;
-    $type = $_POST['q_type'] ?? 'ecrit';
-    $principale = trim($_POST['principale'] ?? '');
-    $secondaire = trim($_POST['secondaire'] ?? '');
-    $theme = trim($_POST['q_theme'] ?? '');
+    $type = securityInWhitelist((string)($_POST['q_type'] ?? 'ecrit'), QCM_VALID_TYPES, 'ecrit');
+    $principale = securityCleanText($_POST['principale'] ?? '', 500);
+    $secondaire = securityCleanText($_POST['secondaire'] ?? '', 300);
+    $theme = securityCleanText($_POST['q_theme'] ?? '', 100);
     $reponsesRaw = trim($_POST['reponses'] ?? '');
-    $reponses = array_values(array_filter(array_map('trim', explode(',', $reponsesRaw)), fn($r) => $r !== ''));
+    // Découpe la liste de réponses séparées par des virgules, nettoie chaque
+    // valeur individuellement et retire les entrées vides.
+    $reponses = array_values(array_filter(
+        array_map(fn($r) => securityCleanText($r, 200), explode(',', $reponsesRaw)),
+        fn($r) => $r !== ''
+    ));
+
+    // Une question doit obligatoirement avoir un texte et au moins une bonne réponse.
+    if ($principale === '' || empty($reponses)) {
+        header('Location: index.php?msg=q_deleted&type=err&edit=' . urlencode($slug));
+        exit;
+    }
 
     $newQ = [
         'type' => $type,
@@ -105,17 +181,28 @@ if (isset($_POST['save_question'])) {
         $newQ['theme'] = $theme;
     }
 
-    if ($type === 'qcm') {
+    // Les types "qcm" (choix unique) et "qcm_multi" (choix multiples)
+    // nécessitent tous les deux une liste d'options proposées.
+    if ($type === 'qcm' || $type === 'qcm_multi') {
         $optionsRaw = trim($_POST['options'] ?? '');
-        $options = array_values(array_filter(array_map('trim', explode(',', $optionsRaw)), fn($o) => $o !== ''));
-        $newQ['options'] = $options;
+        $options = array_values(array_filter(
+            array_map(fn($o) => securityCleanText($o, 200), explode(',', $optionsRaw)),
+            fn($o) => $o !== ''
+        ));
+        // Garantit que les bonnes réponses figurent bien parmi les options proposées.
+        foreach ($reponses as $rep) {
+            if (!in_array($rep, $options, true)) {
+                $options[] = $rep;
+            }
+        }
+        $newQ['options'] = array_values(array_unique($options));
     }
 
     $qcm = qcmLoad($slug);
     if ($qcm) {
         if ($qIdx === null) {
             $qcm['questions'][] = $newQ;
-        } else {
+        } elseif (isset($qcm['questions'][$qIdx])) {
             $qcm['questions'][$qIdx] = $newQ;
         }
         qcmSave($slug, $qcm);
@@ -125,6 +212,10 @@ if (isset($_POST['save_question'])) {
 }
 
 $data = qcmListAll();
+
+// Utilisation du stockage disque par les fichiers du site, affichée dans
+// le bloc d'information au-dessus de la gestion des QCM.
+$storage = qcmGetStorageUsage();
 
 if (!$message && isset($_GET['msg'])) {
     $msgs = [
@@ -193,6 +284,33 @@ foreach ($data as $qcm) {
             <div class="stat-value"><?= $totalQuestions ?></div>
             <div class="stat-label">Questions</div>
         </div>
+        <div class="stat-card online">
+            <div class="stat-value" id="admins-online-count"><?= $adminsConnectes ?></div>
+            <div class="stat-label"><span class="live-dot" title="Mis à jour automatiquement"></span><span id="admins-online-label">Admin<?= $adminsConnectes > 1 ? 's' : '' ?> connecté<?= $adminsConnectes > 1 ? 's' : '' ?></span></div>
+        </div>
+    </div>
+
+    <?php
+    // Détermine une couleur d'alerte selon le taux de remplissage du stockage.
+    $storageColor = $storage['percent'] >= 90 ? 'var(--red)' : ($storage['percent'] >= 70 ? 'var(--amber)' : 'var(--green)');
+    ?>
+    <div class="admin-section storage-info">
+        <div class="admin-section-header">
+            <div class="admin-section-title"><span class="dot" style="background:<?= $storageColor ?>"></span>Espace de stockage serveur</div>
+            <span class="storage-values">
+                <strong><?= htmlspecialchars(number_format($storage['used_mo'], 2, ',', ' ')) ?> Mo</strong>
+                <span style="color:var(--text3)"> / <?= htmlspecialchars(number_format($storage['limit_mo'], 0, ',', ' ')) ?> Mo</span>
+            </span>
+        </div>
+        <p class="admin-section-desc" style="margin-bottom:12px;">
+            Taille totale des fichiers du site (QCM, images, données…). Le quota affiché
+            (<?= htmlspecialchars(number_format($storage['limit_mo'] / 1024, 2)) ?> Go) est une constante définie dans le code
+            (<code>QCM_STORAGE_LIMIT_BYTES</code> dans <code>includes/qcm.php</code>) : elle ne peut être modifiée que directement dans le code source, pas depuis cette interface.
+        </p>
+        <div class="storage-bar-track">
+            <div class="storage-bar-fill" style="width:<?= htmlspecialchars($storage['percent']) ?>%;background:<?= $storageColor ?>"></div>
+        </div>
+        <div class="storage-percent-label"><?= htmlspecialchars($storage['percent']) ?>% utilisé</div>
     </div>
 
     <?php if (!$editQcm): ?>
@@ -229,10 +347,10 @@ foreach ($data as $qcm) {
                 </div>
                 <div class="qcm-card-actions">
                     <a class="action-link primary" href="index.php?edit=<?= urlencode($quiz['slug']) ?>">Modifier</a>
-                    <a class="action-link success" href="index.php?action=toggle&slug=<?= urlencode($quiz['slug']) ?>">
+                    <a class="action-link success" href="index.php?action=toggle&slug=<?= urlencode($quiz['slug']) ?>&csrf=<?= urlencode($csrfToken) ?>">
                         <?= ($quiz['statut'] ?? '') === 'actif' ? 'Désactiver' : 'Activer' ?>
                     </a>
-                    <a class="action-link danger" href="index.php?action=delete_qcm&slug=<?= urlencode($quiz['slug']) ?>"
+                    <a class="action-link danger" href="index.php?action=delete_qcm&slug=<?= urlencode($quiz['slug']) ?>&csrf=<?= urlencode($csrfToken) ?>"
                        onclick="return confirm('Supprimer ce QCM et son fichier JSON ?')">Supprimer</a>
                 </div>
             </div>
@@ -254,6 +372,7 @@ foreach ($data as $qcm) {
         </div>
 
         <form method="POST" style="margin-bottom: 32px;">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
             <input type="hidden" name="old_slug" value="<?= htmlspecialchars($editSlug) ?>">
             <input type="hidden" name="is_new" value="0">
             <div class="form-grid">
@@ -283,11 +402,15 @@ foreach ($data as $qcm) {
                 <span class="dot" style="background:var(--accent2)"></span>
                 Questions (<?= count($editQcm['questions'] ?? []) ?>)
             </div>
-            <?php if (count($editQcm['questions'] ?? []) > 3): ?>
-            <div class="search-box">
-                <input type="text" id="question-search" placeholder="Rechercher une question…">
+            <div class="questions-header-actions">
+                <?php if (count($editQcm['questions'] ?? []) > 0): ?>
+                <div class="search-box">
+                    <input type="text" id="question-search" placeholder="Rechercher une question…">
+                </div>
+                <?php endif; ?>
+                <!-- Bouton d'ajout de question placé au-dessus de la liste, en plus de celui situé en bas -->
+                <button type="button" class="btn btn-primary" onclick="Admin.newQuestion('<?= htmlspecialchars($editSlug, ENT_QUOTES) ?>')">＋ Ajouter une question</button>
             </div>
-            <?php endif; ?>
         </div>
 
         <?php if (empty($editQcm['questions'])): ?>
@@ -301,9 +424,14 @@ foreach ($data as $qcm) {
                 $searchText = strtolower(($q['principale'] ?? '') . ' ' . ($q['secondaire'] ?? '') . ' ' . ($q['theme'] ?? '') . ' ' . implode(' ', $q['reponses'] ?? []));
             ?>
             <div class="question-card" data-search="<?= htmlspecialchars($searchText) ?>">
+                <?php
+                // Libellé lisible pour chacun des 3 types de question autorisés.
+                $typeLabels = ['ecrit' => 'Écrit', 'qcm' => 'QCM', 'qcm_multi' => 'QCM multi'];
+                $qType = $q['type'] ?? 'ecrit';
+                ?>
                 <div class="question-card-top">
                     <span class="question-num">#<?= $qi + 1 ?></span>
-                    <span class="badge-type <?= htmlspecialchars($q['type']) ?>"><?= ($q['type'] ?? '') === 'qcm' ? 'QCM' : 'Écrit' ?></span>
+                    <span class="badge-type <?= htmlspecialchars($qType) ?>"><?= htmlspecialchars($typeLabels[$qType] ?? 'Écrit') ?></span>
                     <?php if (!empty($q['theme'])): ?>
                     <span class="detail-chip theme"><?= htmlspecialchars($q['theme']) ?></span>
                     <?php endif; ?>
@@ -316,7 +444,7 @@ foreach ($data as $qcm) {
                     <?php foreach ($q['reponses'] as $rep): ?>
                     <span class="detail-chip correct">✓ <?= htmlspecialchars($rep) ?></span>
                     <?php endforeach; ?>
-                    <?php if (($q['type'] ?? '') === 'qcm' && !empty($q['options'])): ?>
+                    <?php if (($qType === 'qcm' || $qType === 'qcm_multi') && !empty($q['options'])): ?>
                         <?php foreach ($q['options'] as $opt): ?>
                             <?php if (!in_array($opt, $q['reponses'])): ?>
                             <span class="detail-chip"><?= htmlspecialchars($opt) ?></span>
@@ -326,7 +454,7 @@ foreach ($data as $qcm) {
                 </div>
                 <div class="question-card-actions">
                     <button type="button" class="action-link" onclick="Admin.editQuestion('<?= htmlspecialchars($editSlug, ENT_QUOTES) ?>', <?= $qi ?>)">Modifier</button>
-                    <a class="action-link danger" href="index.php?action=delete_question&slug=<?= urlencode($editSlug) ?>&q_idx=<?= $qi ?>"
+                    <a class="action-link danger" href="index.php?action=delete_question&slug=<?= urlencode($editSlug) ?>&q_idx=<?= $qi ?>&csrf=<?= urlencode($csrfToken) ?>"
                        onclick="return confirm('Supprimer cette question ?')">Supprimer</a>
                 </div>
             </div>
@@ -345,6 +473,7 @@ foreach ($data as $qcm) {
         <div id="json-editor-body" class="cache">
             <p class="admin-section-desc" style="margin-top:12px">Édition directe du fichier JSON de ce QCM.</p>
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
                 <input type="hidden" name="qcm_slug" value="<?= htmlspecialchars($editSlug) ?>">
                 <textarea class="json-editor" name="json_data"><?= htmlspecialchars($contenuBrut) ?></textarea>
                 <div class="btn-group">
@@ -363,6 +492,7 @@ foreach ($data as $qcm) {
     <div class="modal" onclick="event.stopPropagation()">
         <div class="modal-title">Créer un nouveau QCM</div>
         <form method="POST">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
             <input type="hidden" name="is_new" value="1">
             <div class="form-grid">
                 <div class="form-group full">
@@ -393,6 +523,7 @@ foreach ($data as $qcm) {
     <div class="modal" onclick="event.stopPropagation()">
         <div class="modal-title" id="modal-question-title">Ajouter une question</div>
         <form method="POST" id="form-question">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
             <input type="hidden" name="qcm_slug" id="fq-qcm-slug">
             <input type="hidden" name="q_idx" id="fq-q-idx" value="">
 
@@ -401,7 +532,8 @@ foreach ($data as $qcm) {
                     <label>Type de question</label>
                     <select class="form-select" name="q_type" id="fq-type" onchange="Admin.toggleOptionsField()">
                         <option value="ecrit">Écrit (saisie libre)</option>
-                        <option value="qcm">QCM (choix multiple)</option>
+                        <option value="qcm">QCM (une seule bonne réponse)</option>
+                        <option value="qcm_multi">QCM (plusieurs réponses correctes)</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -417,12 +549,12 @@ foreach ($data as $qcm) {
                     <input class="form-input" type="text" name="secondaire" id="fq-secondaire" placeholder="Ex : Mon chien est joueur">
                 </div>
                 <div class="form-group full">
-                    <label>Réponses correctes</label>
+                    <label>Réponse(s) correcte(s)</label>
                     <div class="tag-input-wrap" id="reponses-tags">
                         <input type="text" class="tag-input-field" placeholder="Tapez et appuyez sur Entrée…">
                         <input type="hidden" name="reponses" id="fq-reponses">
                     </div>
-                    <span class="form-hint" style="margin-top:4px;display:block">Appuyez sur Entrée ou virgule pour ajouter une réponse</span>
+                    <span class="form-hint" style="margin-top:4px;display:block" id="fq-reponses-hint">Appuyez sur Entrée ou virgule pour ajouter une réponse</span>
                 </div>
                 <div class="form-group full cache" id="fq-options-group">
                     <label>Options QCM</label>
@@ -430,7 +562,7 @@ foreach ($data as $qcm) {
                         <input type="text" class="tag-input-field" placeholder="Ajoutez les choix proposés…">
                         <input type="hidden" name="options" id="fq-options">
                     </div>
-                    <span class="form-hint" style="margin-top:4px;display:block">Incluez la bonne réponse parmi les options</span>
+                    <span class="form-hint" style="margin-top:4px;display:block">Incluez la/les bonne(s) réponse(s) parmi les options. Pour un QCM à réponses multiples, ajoutez plusieurs réponses correctes ci-dessus.</span>
                 </div>
             </div>
 
