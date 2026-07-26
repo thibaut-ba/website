@@ -1063,6 +1063,29 @@ input[type="text"].correct {
 
 .question-card.filtered-out { display: none; }
 
+/* Carte hors de la page courante (pagination des questions, voir admin.js) */
+.question-card.page-hidden { display: none; }
+
+/* Contrôles de pagination sous la liste des questions */
+.questions-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 14px;
+}
+
+.questions-pagination .q-page-info {
+    color: var(--text3);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.questions-pagination button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 .question-card-top {
     display: flex;
     align-items: center;

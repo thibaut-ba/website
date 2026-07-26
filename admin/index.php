@@ -460,6 +460,19 @@ foreach ($data as $qcm) {
             </div>
             <?php endforeach; ?>
         </div>
+
+        <!-- Pagination des questions : toutes les questions sont rendues côté
+             serveur ci-dessus (pour garder la recherche et les actions
+             Modifier/Supprimer simples), mais admin.js n'en affiche que 10
+             à la fois (voir Admin.QUESTIONS_PER_PAGE dans admin.js) afin
+             d'éviter un scroll interminable quand un QCM contient plus de
+             100 questions. Les boutons sont masqués par défaut ici et
+             affichés/mis à jour dynamiquement par Admin.updateQuestionsView(). -->
+        <div class="questions-pagination cache" id="questions-pagination">
+            <button type="button" class="btn btn-secondary" id="q-page-prev" onclick="Admin.changeQuestionPage(-1)">← Précédent</button>
+            <span class="q-page-info" id="q-page-info"></span>
+            <button type="button" class="btn btn-secondary" id="q-page-next" onclick="Admin.changeQuestionPage(1)">Suivant →</button>
+        </div>
         <?php endif; ?>
 
         <button type="button" class="add-question-btn" onclick="Admin.newQuestion('<?= htmlspecialchars($editSlug, ENT_QUOTES) ?>')">＋ Ajouter une question</button>

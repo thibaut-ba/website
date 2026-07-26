@@ -14,6 +14,13 @@
 const Admin = {
     questionsData: {},
 
+    // Nombre de questions affichées par page dans la liste d'édition d'un
+    // QCM (partie admin). Évite d'avoir à scroller une très longue liste
+    // quand un QCM contient plus de 100 questions.
+    QUESTIONS_PER_PAGE: 10,
+    // Page actuellement affichée (réinitialisée à 1 à chaque recherche).
+    currentQuestionPage: 1,
+
     init() {
         const el = document.getElementById('admin-questions-data');
         if (el) {
@@ -230,15 +237,82 @@ const Admin = {
 
     initQuestionSearch() {
         const search = document.getElementById('question-search');
+
+        // La pagination doit s'appliquer même s'il n'y a pas de barre de
+        // recherche affichée (elle n'existe que si le QCM a des questions),
+        // donc on calcule l'affichage initial dans tous les cas.
+        this.updateQuestionsView();
+
         if (!search) return;
 
         search.addEventListener('input', () => {
-            const q = search.value.toLowerCase().trim();
-            document.querySelectorAll('.question-card').forEach(card => {
-                const text = card.dataset.search || '';
-                card.classList.toggle('filtered-out', q !== '' && !text.includes(q));
-            });
+            // Toute nouvelle recherche repart de la page 1.
+            this.currentQuestionPage = 1;
+            this.updateQuestionsView();
         });
+    },
+
+    /**
+     * Recalcule quelles cartes de question doivent être visibles :
+     * d'abord on applique le filtre de recherche (texte), puis parmi les
+     * questions qui correspondent à la recherche, on n'affiche que celles
+     * de la page courante (Admin.QUESTIONS_PER_PAGE questions par page).
+     * Met aussi à jour les boutons "Précédent"/"Suivant" et le compteur
+     * de pages.
+     */
+    updateQuestionsView() {
+        const cards = [...document.querySelectorAll('.question-card')];
+        if (cards.length === 0) return;
+
+        const search = document.getElementById('question-search');
+        const q = search ? search.value.toLowerCase().trim() : '';
+
+        // 1) Filtre de recherche : une carte qui ne correspond pas à la
+        // recherche est masquée et exclue du calcul de pagination.
+        const matched = [];
+        cards.forEach(card => {
+            const text = card.dataset.search || '';
+            const isMatch = q === '' || text.includes(q);
+            card.classList.toggle('filtered-out', !isMatch);
+            if (isMatch) matched.push(card);
+        });
+
+        // 2) Pagination sur les seules cartes correspondant à la recherche.
+        const totalPages = Math.max(1, Math.ceil(matched.length / this.QUESTIONS_PER_PAGE));
+        if (this.currentQuestionPage > totalPages) this.currentQuestionPage = totalPages;
+        if (this.currentQuestionPage < 1) this.currentQuestionPage = 1;
+
+        const start = (this.currentQuestionPage - 1) * this.QUESTIONS_PER_PAGE;
+        const end = start + this.QUESTIONS_PER_PAGE;
+        matched.forEach((card, i) => {
+            card.classList.toggle('page-hidden', i < start || i >= end);
+        });
+
+        // 3) Mise à jour des boutons de pagination (masqués si une seule
+        // page suffit, par exemple un QCM avec moins de 10 questions).
+        const pagination = document.getElementById('questions-pagination');
+        if (!pagination) return;
+        pagination.classList.toggle('cache', totalPages <= 1);
+
+        const info = document.getElementById('q-page-info');
+        if (info) info.textContent = `Page ${this.currentQuestionPage} / ${totalPages}`;
+
+        const prevBtn = document.getElementById('q-page-prev');
+        const nextBtn = document.getElementById('q-page-next');
+        if (prevBtn) prevBtn.disabled = this.currentQuestionPage <= 1;
+        if (nextBtn) nextBtn.disabled = this.currentQuestionPage >= totalPages;
+    },
+
+    /**
+     * Change de page dans la liste des questions.
+     * @param {number} delta -1 pour "Précédent", +1 pour "Suivant".
+     */
+    changeQuestionPage(delta) {
+        this.currentQuestionPage += delta;
+        this.updateQuestionsView();
+        // Remonte en haut de la liste pour que l'utilisateur voie bien
+        // le changement de page (utile si la liste précédente était longue).
+        document.querySelector('.questions-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     },
 
     toggleJsonEditor() {
