@@ -100,6 +100,7 @@ const Admin = {
         this.setTagValues('reponses-tags', []);
         this.setTagValues('options-tags', []);
         this.toggleOptionsField();
+        this.populateThemeList(slug);
         this.showModal('modal-question');
         setTimeout(() => document.getElementById('fq-principale').focus(), 100);
     },
@@ -118,7 +119,32 @@ const Admin = {
         this.setTagValues('reponses-tags', q.reponses || []);
         this.setTagValues('options-tags', q.options || []);
         this.toggleOptionsField();
+        this.populateThemeList(slug);
         this.showModal('modal-question');
+    },
+
+    /**
+     * Remplit la <datalist> associée au champ "Thème" avec les thèmes déjà
+     * utilisés par les autres questions de ce QCM (sans doublons, triés
+     * alphabétiquement), pour proposer une liste de suggestions et éviter
+     * de retaper un thème existant avec une faute de frappe ou une casse
+     * différente (ex : "Animaux" vs "animaux").
+     */
+    populateThemeList(slug) {
+        const list = document.getElementById('fq-theme-list');
+        if (!list) return;
+        list.innerHTML = '';
+
+        const questions = this.questionsData[slug] || [];
+        const themes = [...new Set(
+            questions.map(q => q.theme).filter(t => t && t.trim() !== '')
+        )].sort((a, b) => a.localeCompare(b));
+
+        themes.forEach(theme => {
+            const option = document.createElement('option');
+            option.value = theme;
+            list.appendChild(option);
+        });
     },
 
     /**

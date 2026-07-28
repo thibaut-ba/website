@@ -551,7 +551,12 @@ foreach ($data as $qcm) {
                 </div>
                 <div class="form-group">
                     <label>Thème <span class="form-hint">(optionnel)</span></label>
-                    <input class="form-input" type="text" name="q_theme" id="fq-theme" placeholder="Ex : animal, verbe…">
+                    <!-- list="fq-theme-list" relie ce champ à la <datalist> ci-dessous,
+                         que Admin.js remplit avec les thèmes déjà utilisés dans ce QCM
+                         (voir Admin.populateThemeList()) pour proposer une liste
+                         déroulante de suggestions et éviter de retaper un thème existant. -->
+                    <input class="form-input" type="text" name="q_theme" id="fq-theme" list="fq-theme-list" autocomplete="off" placeholder="Ex : animal, verbe…">
+                    <datalist id="fq-theme-list"></datalist>
                 </div>
                 <div class="form-group full">
                     <label>Question principale</label>

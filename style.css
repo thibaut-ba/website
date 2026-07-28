@@ -355,6 +355,82 @@ nav a.nav-link:hover {
     margin-top: 16px;
 }
 
+/* ── RÉGLAGES DU RYTHME DU QUIZ (délai entre les questions) ── */
+.quiz-settings {
+    margin-top: 14px;
+    padding: 16px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.quiz-setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.quiz-setting-row label {
+    font-size: 14px;
+    color: var(--text2);
+    font-weight: 500;
+}
+
+.quiz-setting-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.quiz-setting-control input[type="number"] {
+    width: 72px;
+    padding: 8px 10px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    text-align: center;
+}
+
+.quiz-setting-control input[type="number"]:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Champ désactivé quand la case "Désactiver le délai" est cochée */
+.quiz-setting-control input[type="number"]:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.quiz-setting-control span {
+    color: var(--text3);
+    font-size: 13px;
+}
+
+.quiz-setting-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text3);
+    cursor: pointer;
+}
+
+.quiz-setting-checkbox input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
 /* ── THEME SELECTION ── */
 .theme-tags {
     display: flex;
@@ -410,6 +486,21 @@ nav a.nav-link:hover {
     padding: 5px 12px;
     border-radius: 99px;
     margin-bottom: 16px;
+}
+
+/* Compte à rebours des questions "écrit" (option de temps limite) */
+.q-chrono {
+    display: inline-block;
+    background: rgba(248,113,113,0.1);
+    border: 1px solid rgba(248,113,113,0.35);
+    color: var(--red);
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 5px 14px;
+    border-radius: 99px;
+    margin-bottom: 16px;
+    margin-left: 8px;
 }
 
 #q-secondaire {
@@ -602,6 +693,23 @@ input[type="text"].correct {
     border-color: rgba(248,113,113,0.4);
     background: rgba(248,113,113,0.06);
 }
+
+/* Ligne d'actions sous le feedback : bouton "Suivant" (avancer tout de
+   suite) et bouton "Passer cette question" (abandonner la question en
+   cours). Les marges individuelles sont neutralisées au profit de celle
+   du conteneur pour garder les deux boutons bien alignés. */
+.quiz-zone-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 24px;
+}
+
+.quiz-zone-actions .btn-abandon { margin-top: 0; }
+
+.btn-suivant { padding: 9px 22px; font-size: 13px; }
 
 .cache { display: none !important; }
 

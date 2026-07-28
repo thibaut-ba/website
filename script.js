@@ -8,6 +8,20 @@
      - "ecrit"     : réponse tapée au clavier
      - "qcm"       : un seul choix parmi plusieurs options
      - "qcm_multi" : plusieurs choix corrects parmi plusieurs options
+   Gère aussi le rythme et les options avancées du quiz, réglables sur la
+   page de sélection :
+     - Quiz.delaiMs        : délai entre chaque question une fois validée
+                              (null = désactivé, avance via le bouton
+                              "Suivant" uniquement — planifierAvance() /
+                              avancerMaintenant()).
+     - Quiz.qcmUnSeulEssai : pour les questions "qcm" (choix unique), ne
+                              compte que le premier essai dans le score
+                              final au lieu d'autoriser des essais
+                              illimités jusqu'à la bonne réponse.
+     - Quiz.ecritTimerMs   : temps limite (ms) pour répondre à une
+                              question "ecrit" avant qu'elle soit comptée
+                              comme fausse automatiquement (null = pas de
+                              limite de temps — voir demarrerChronoEcrit()).
    Toutes les données affichées (quiz.titre, q.principale, etc.) sont
    insérées via textContent/innerText (jamais innerHTML) afin d'éviter
    toute injection de code HTML/JS dans le navigateur.
@@ -17,6 +31,18 @@ let questionsFiltered = [];
 let indexQuestion = 0;
 let score = 0;
 let repondu = false;
+// Identifiant du setTimeout planifié pour l'avancement automatique vers la
+// question suivante (voir planifierAvance()) ; permet de l'annuler si
+// l'utilisateur clique sur "Suivant" avant son expiration.
+let questionTimeoutId = null;
+// true tant qu'aucune réponse n'a encore été tentée sur la question "qcm"
+// (choix unique) affichée actuellement ; utilisé par verifierQCM() pour
+// savoir si un essai raté est le tout premier (option Quiz.qcmUnSeulEssai).
+let premierEssaiQCM = true;
+// Identifiant du setInterval du chronomètre des questions "ecrit" (voir
+// demarrerChronoEcrit()) ; permet de l'arrêter si la question est validée
+// avant la fin du temps imparti, ou lors du passage à la question suivante.
+let ecritTimerId = null;
 
 /**
  * Espace de noms regroupant toute la logique de sélection des modules
@@ -34,6 +60,21 @@ const Quiz = {
     data: [],
     selectedModules: new Set(),
     selectedThemes: {},
+    // Délai (en ms) avant de passer automatiquement à la question
+    // suivante après une bonne réponse. null = délai désactivé (avance
+    // uniquement via le bouton "Suivant"). Valeur par défaut : 1 seconde,
+    // recalculée dans commencer() à partir des réglages de la page.
+    delaiMs: 1000,
+    // Si true, pour les questions "qcm" (choix unique), un premier essai
+    // faux compte définitivement comme une réponse fausse dans le score
+    // final (pas de nouvel essai). Si false (par défaut), l'utilisateur
+    // peut réessayer jusqu'à trouver la bonne réponse, qui compte alors
+    // comme réussie quel que soit le nombre d'essais.
+    qcmUnSeulEssai: false,
+    // Temps limite (ms) pour répondre à une question "ecrit" avant
+    // qu'elle soit automatiquement comptée comme fausse. null = pas de
+    // limite de temps (comportement par défaut).
+    ecritTimerMs: null,
 
     /**
      * Charge la liste des QCM actifs depuis le <script type="application/json">
@@ -130,6 +171,28 @@ const Quiz = {
     },
 
     /**
+     * Appelé quand on coche/décoche "Désactiver le délai" : grise le
+     * champ de saisie du délai en secondes tant que le délai automatique
+     * est désactivé, pour bien indiquer qu'il n'est plus pris en compte.
+     */
+    onDelaiToggle() {
+        const checkbox = document.getElementById('delai-desactive');
+        const input = document.getElementById('delai-secondes');
+        if (input && checkbox) input.disabled = checkbox.checked;
+    },
+
+    /**
+     * Appelé quand on coche/décoche "Activer un temps limite" pour les
+     * questions écrites : active/désactive le champ de saisie du nombre
+     * de secondes en conséquence.
+     */
+    onEcritTimerToggle() {
+        const checkbox = document.getElementById('ecrit-timer-actif');
+        const input = document.getElementById('ecrit-timer-secondes');
+        if (input && checkbox) input.disabled = !checkbox.checked;
+    },
+
+    /**
      * Construit le pool de questions combiné à partir des modules et
      * thèmes sélectionnés, puis lance le quiz. Exemple : 2 modules pris
      * en entier + seulement 2 thèmes d'un 3e module → toutes les
@@ -167,6 +230,32 @@ const Quiz = {
         }
 
         errEl.classList.add('cache');
+
+        // Lecture des réglages de rythme définis sur la page de sélection :
+        // soit un délai en secondes (converti en ms), soit un avancement
+        // entièrement manuel si la case "Désactiver le délai" est cochée.
+        const delaiDesactive = document.getElementById('delai-desactive')?.checked;
+        if (delaiDesactive) {
+            this.delaiMs = null;
+        } else {
+            let secondes = parseFloat(document.getElementById('delai-secondes')?.value);
+            // Valeur de repli si le champ est vide, non numérique ou négatif.
+            if (isNaN(secondes) || secondes < 0) secondes = 1;
+            this.delaiMs = secondes * 1000;
+        }
+
+        // Option "un seul essai" pour les QCM à choix unique.
+        this.qcmUnSeulEssai = !!document.getElementById('qcm-un-seul-essai')?.checked;
+
+        // Option de temps limite pour les questions "écrit".
+        const ecritTimerActif = document.getElementById('ecrit-timer-actif')?.checked;
+        if (ecritTimerActif) {
+            let secondesEcrit = parseFloat(document.getElementById('ecrit-timer-secondes')?.value);
+            if (isNaN(secondesEcrit) || secondesEcrit <= 0) secondesEcrit = 15;
+            this.ecritTimerMs = secondesEcrit * 1000;
+        } else {
+            this.ecritTimerMs = null;
+        }
 
         const titreCombine = titresChoisis.length > 1
             ? `Quiz combiné — ${titresChoisis.join(' + ')}`
@@ -208,6 +297,23 @@ function updateProgress() {
 function afficherQuestion() {
     let q = questionsFiltered[indexQuestion];
     repondu = false;
+    // Chaque nouvelle question "qcm" repart avec un essai "vierge" pour
+    // l'option Quiz.qcmUnSeulEssai (voir verifierQCM()).
+    premierEssaiQCM = true;
+
+    // Sécurité : annule un éventuel délai encore en attente (ne devrait pas
+    // arriver en usage normal) et masque le bouton "Suivant", qui ne doit
+    // réapparaître qu'une fois cette nouvelle question validée (voir
+    // planifierAvance()).
+    if (questionTimeoutId) {
+        clearTimeout(questionTimeoutId);
+        questionTimeoutId = null;
+    }
+    document.getElementById('btn-suivant').classList.add('cache');
+
+    // Arrête le chronomètre d'une éventuelle question "ecrit" précédente
+    // avant d'en démarrer un nouveau plus bas si besoin.
+    arreterChronoEcrit();
 
     updateProgress();
     document.getElementById('titre-quiz').innerText = quizActuel.titre;
@@ -247,10 +353,11 @@ function afficherQuestion() {
             const saisie = this.value.toLowerCase().trim();
             if (q.reponses.some(r => r.toLowerCase() === saisie)) {
                 repondu = true;
+                arreterChronoEcrit();
                 this.classList.add('correct');
                 score++;
                 feedback('Bravo !', false);
-                setTimeout(prochaineQuestion, 900);
+                planifierAvance();
             }
         });
 
@@ -266,6 +373,12 @@ function afficherQuestion() {
         wrap.appendChild(input);
         container.appendChild(wrap);
         input.focus();
+
+        // Si un temps limite est configuré pour les questions "ecrit",
+        // démarre le compte à rebours pour cette question.
+        if (Quiz.ecritTimerMs !== null) {
+            demarrerChronoEcrit(Quiz.ecritTimerMs, q);
+        }
     } else if (q.type === 'qcm') {
         // QCM classique : une seule bonne réponse, on valide au premier clic.
         const grid = document.createElement('div');
@@ -360,16 +473,30 @@ function verifierQCMMulti(grid, selection, bonnesReponses) {
         repondu = true;
         score++;
         feedback('Correct !', false);
-        setTimeout(prochaineQuestion, 1100);
+        planifierAvance();
     } else {
         repondu = true;
         feedback('Pas tout à fait — bonne(s) réponse(s) : ' + bonnesReponses.join(' / '), true);
-        setTimeout(prochaineQuestion, 1800);
+        planifierAvance();
     }
 }
 
+/**
+ * Vérifie une réponse de type "qcm" (choix unique). Comportement selon
+ * Quiz.qcmUnSeulEssai :
+ *  - false (par défaut) : l'utilisateur peut réessayer jusqu'à trouver
+ *    la bonne réponse, qui compte alors comme réussie.
+ *  - true : seul le premier essai compte. S'il est faux, la question
+ *    est définitivement comptée comme fausse (pas de score++) et la
+ *    bonne réponse est révélée avant de passer à la suite, sans
+ *    possibilité de réessayer.
+ */
 function verifierQCM(btn, choix, bonnesReponses) {
     if (repondu) return;
+
+    const estPremierEssai = premierEssaiQCM;
+    premierEssaiQCM = false;
+
     document.querySelectorAll('.qcm-grid button').forEach(b => b.onclick = null);
 
     if (bonnesReponses.includes(choix)) {
@@ -377,17 +504,33 @@ function verifierQCM(btn, choix, bonnesReponses) {
         btn.classList.add('correct-choice');
         score++;
         feedback('Correct !', false);
-        setTimeout(prochaineQuestion, 900);
-    } else {
-        btn.classList.add('wrong');
-        feedback('Réessayez…', true);
-        setTimeout(() => {
-            btn.classList.remove('wrong');
-            document.querySelectorAll('.qcm-grid button').forEach(b => {
-                b.onclick = () => verifierQCM(b, b.innerText, bonnesReponses);
-            });
-        }, 600);
+        planifierAvance();
+        return;
     }
+
+    if (Quiz.qcmUnSeulEssai && estPremierEssai) {
+        // Option "un seul essai" activée et c'était le premier essai :
+        // la question est définitivement comptée comme fausse, sans
+        // nouvel essai possible. On révèle la bonne réponse.
+        repondu = true;
+        btn.classList.add('wrong');
+        document.querySelectorAll('.qcm-grid button').forEach(b => {
+            if (bonnesReponses.includes(b.innerText)) b.classList.add('correct-choice');
+        });
+        feedback('Faux — la bonne réponse était : ' + bonnesReponses.join(' / '), true);
+        planifierAvance();
+        return;
+    }
+
+    // Comportement par défaut : nouvel essai autorisé.
+    btn.classList.add('wrong');
+    feedback('Réessayez…', true);
+    setTimeout(() => {
+        btn.classList.remove('wrong');
+        document.querySelectorAll('.qcm-grid button').forEach(b => {
+            b.onclick = () => verifierQCM(b, b.innerText, bonnesReponses);
+        });
+    }, 600);
 }
 
 function feedback(msg, isError) {
@@ -401,7 +544,88 @@ function abandonner() {
     repondu = true;
     let q = questionsFiltered[indexQuestion];
     feedback('Réponse : ' + q.reponses.join(' / '), true);
-    setTimeout(prochaineQuestion, 1800);
+    planifierAvance();
+}
+
+/**
+ * Démarre le compte à rebours d'une question de type "ecrit" quand
+ * l'option de temps limite (Quiz.ecritTimerMs) est activée. Affiche un
+ * petit chronomètre au-dessus du champ de réponse et, si le temps
+ * s'écoule sans réponse correcte, marque automatiquement la question
+ * comme fausse (sans incrémenter le score) avant de passer à la suite.
+ * @param {number} dureeMs Durée totale du compte à rebours, en ms.
+ * @param {object} q La question "ecrit" actuellement affichée.
+ */
+function demarrerChronoEcrit(dureeMs, q) {
+    const chrono = document.getElementById('q-chrono');
+    if (!chrono) return;
+
+    let restant = Math.ceil(dureeMs / 1000);
+    chrono.textContent = `⏱ ${restant}s`;
+    chrono.classList.remove('cache');
+
+    ecritTimerId = setInterval(() => {
+        restant--;
+        if (restant <= 0) {
+            arreterChronoEcrit();
+            if (!repondu) {
+                // Temps écoulé : la question est comptée comme fausse
+                // (pas de score++) et on révèle la bonne réponse.
+                repondu = true;
+                feedback('Temps écoulé — réponse : ' + q.reponses.join(' / '), true);
+                planifierAvance();
+            }
+            return;
+        }
+        chrono.textContent = `⏱ ${restant}s`;
+    }, 1000);
+}
+
+/**
+ * Arrête le compte à rebours en cours d'une question "ecrit" (s'il y en
+ * a un) et masque son affichage. Appelé dès qu'une question est validée
+ * ou quand on passe à la question suivante, pour éviter qu'un ancien
+ * minuteur ne continue à tourner en arrière-plan.
+ */
+function arreterChronoEcrit() {
+    if (ecritTimerId) {
+        clearInterval(ecritTimerId);
+        ecritTimerId = null;
+    }
+    document.getElementById('q-chrono')?.classList.add('cache');
+}
+
+/**
+ * Planifie le passage à la question suivante après une bonne réponse (ou
+ * un abandon) : affiche systématiquement le bouton "Suivant" pour
+ * permettre d'avancer tout de suite, et si le délai automatique n'est
+ * pas désactivé (Quiz.delaiMs !== null), programme aussi un passage
+ * automatique après ce délai configuré par l'utilisateur.
+ */
+function planifierAvance() {
+    document.getElementById('btn-suivant').classList.remove('cache');
+
+    if (Quiz.delaiMs !== null) {
+        questionTimeoutId = setTimeout(avancerMaintenant, Quiz.delaiMs);
+    }
+    // Si Quiz.delaiMs est null (délai désactivé dans les réglages), rien
+    // n'est planifié ici : seul un clic sur "Suivant" fera avancer le quiz.
+}
+
+/**
+ * Avance immédiatement à la question suivante, déclenché soit par le
+ * clic sur le bouton "Suivant", soit par l'expiration du délai
+ * automatique. Annule le minuteur en attente pour éviter un double
+ * avancement si les deux se produisaient presque en même temps.
+ */
+function avancerMaintenant() {
+    if (questionTimeoutId) {
+        clearTimeout(questionTimeoutId);
+        questionTimeoutId = null;
+    }
+    arreterChronoEcrit();
+    document.getElementById('btn-suivant').classList.add('cache');
+    prochaineQuestion();
 }
 
 function prochaineQuestion() {
@@ -418,6 +642,7 @@ function prochaineQuestion() {
 function afficherFin(total) {
     const container = document.getElementById('input-container');
     container.innerHTML = '';
+    arreterChronoEcrit();
     document.getElementById('q-theme-badge').classList.add('cache');
     document.getElementById('q-secondaire').innerText = '';
     document.getElementById('progress-bar').style.width = '100%';
@@ -448,6 +673,7 @@ function afficherFin(total) {
     btnGroup.appendChild(retryBtn);
     container.appendChild(btnGroup);
 
+    document.getElementById('btn-suivant').classList.add('cache');
     document.querySelector('.btn-abandon').classList.add('cache');
 }
 
