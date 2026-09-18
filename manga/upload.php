@@ -169,6 +169,11 @@ if ($parsed === null) {
     exit;
 }
 
+// Enregistre la date/heure de cet import avec les données, au format
+// ISO 8601 (facile à reformater ensuite côté affichage dans
+// manga-review.php, quel que soit le fuseau horaire du serveur).
+$parsed['imported_at'] = date('c');
+
 if (!mangaSaveData($parsed)) {
     header('Location: manga-review.php?msg=save_err&type=err');
     exit;

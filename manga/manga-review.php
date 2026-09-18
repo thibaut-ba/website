@@ -5,13 +5,17 @@ securitySendHeaders();
 $isAdmin = adminIsLoggedIn();
 $csrfToken = securityCsrfToken();
 $dataFile = __DIR__ . '/manga-data.json';
-$mangaData = ['headers' => [], 'rows' => []];
+// 'imported_at' : date/heure du dernier import CSV (ajoutée par upload.php),
+// affichée juste à côté du champ de recherche. null si aucun import n'a
+// encore été fait (ou si le fichier a été créé avant l'ajout de ce champ).
+$mangaData = ['headers' => [], 'rows' => [], 'imported_at' => null];
 
 if (is_file($dataFile)) {
     $decoded = json_decode(file_get_contents($dataFile), true);
     if (is_array($decoded)) {
         $mangaData['headers'] = $decoded['headers'] ?? [];
         $mangaData['rows'] = $decoded['rows'] ?? [];
+        $mangaData['imported_at'] = $decoded['imported_at'] ?? null;
     }
 }
 
@@ -32,6 +36,19 @@ if (isset($_GET['msg'])) {
 }
 
 $hasData = !empty($mangaData['headers']);
+
+// Formate la date d'import en français ("28/07/2026 à 22:24") pour
+// l'affichage dans la barre d'outils du tableau. Reste null si aucune
+// date n'est disponible (pas encore d'import, ou ancien fichier de
+// données antérieur à l'ajout de ce champ).
+$importedAtLabel = null;
+if (!empty($mangaData['imported_at'])) {
+    try {
+        $importedAtLabel = (new DateTime($mangaData['imported_at']))->format('d/m/Y à H:i');
+    } catch (Exception $e) {
+        $importedAtLabel = null;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -71,6 +88,20 @@ $hasData = !empty($mangaData['headers']);
             align-items: center;
             justify-content: space-between;
             margin-bottom: 18px;
+        }
+        /* Regroupe la date d'import et le champ de recherche pour que la
+           date reste toujours collée juste à gauche du champ, quelle que
+           soit la largeur de l'écran. */
+        .manga-toolbar-search {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+        }
+        .import-date-info {
+            color: var(--text3);
+            font-size: 12px;
+            white-space: nowrap;
         }
         .manga-table-wrap {
             overflow-x: auto;
@@ -189,8 +220,13 @@ $hasData = !empty($mangaData['headers']);
                 <span class="dot"></span>
                 <?= count($mangaData['rows']) ?> entrée<?= count($mangaData['rows']) > 1 ? 's' : '' ?>
             </div>
-            <div class="search-box">
-                <input type="text" id="manga-search" placeholder="Rechercher dans le tableau…">
+            <div class="manga-toolbar-search">
+                <?php if ($importedAtLabel): ?>
+                <span class="import-date-info">Importé le <?= htmlspecialchars($importedAtLabel) ?></span>
+                <?php endif; ?>
+                <div class="search-box">
+                    <input type="text" id="manga-search" placeholder="Rechercher dans le tableau…">
+                </div>
             </div>
         </div>
 
